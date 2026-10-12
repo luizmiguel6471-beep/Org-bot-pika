@@ -317,3 +317,13 @@ class ApView(discord.ui.View):
                 except: pass
         salvar()
         await i.followup.send("Saiu da fila!", ephemeral=True)
+@bot.tree.command(name="painel_2v2_tudo", description="Cria os 8 de uma vez sem travar")
+async def painel_2v2_tudo(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True) # avisa o Discord que vai demorar
+    valores = ["10,00", "5,00", "3,00", "2,00", "1,00", "0,60", "0,40", "0,20"]
+    for v in valores:
+        emb = discord.Embed(title=f"2v2 Mobile • R$ {v}", description="**Jogadores na fila:**\nNenhum jogador na fila.", color=0x3498DB)
+        await interaction.channel.send(embed=emb, view=ApView(v, "2v2"))
+        await asyncio.sleep(1) # espera 1s pra não tomar rate limit
+    
+    await interaction.followup.send("✅ 8 painéis criados!", ephemeral=True)
