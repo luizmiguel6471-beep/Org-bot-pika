@@ -15,9 +15,8 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-filas = {} # key: valor_formato_modo -> [id1, id2]
+filas = {}
 
-# Salva a fila pra não sumir se o bot reiniciar
 def salvar_filas():
     try:
         with open("filas.json","w") as f:
@@ -41,7 +40,7 @@ class EncerrarApView(discord.ui.View):
 
     async def finalizar(self, interaction, vencedor):
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("Só ADM!", ephemeral=True)
+            return await interaction.response.send_message("Só ADM pode encerrar!", ephemeral=True)
         embed = discord.Embed(title=f"FINALIZADO - {self.formato} R$ {self.valor}", description=f"Vencedor: {vencedor.mention}\nApagando em 10s!", color=0xFFD700)
         await interaction.response.send_message(embed=embed)
         await asyncio.sleep(10)
@@ -60,14 +59,14 @@ class EncerrarApView(discord.ui.View):
     async def cancelar(self, interaction, button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("Só ADM!", ephemeral=True)
-        await interaction.response.send_message("Cancelado!")
+        await interaction.response.send_message("Cancelado...")
         await asyncio.sleep(2)
         try: await interaction.channel.delete()
         except: pass
 
 class ApView(discord.ui.View):
     def __init__(self, valor, formato):
-        super().__init__(timeout=None) # INFINITO
+        super().__init__(timeout=None)
         self.valor = valor
         self.formato = formato
 
@@ -82,17 +81,16 @@ class ApView(discord.ui.View):
         for uid in lista:
             m = guild.get_member(uid)
             if m:
-                txt += f"• {m.mention} - {m.display_name}\n"
+                txt += f"• {m.mention} ({m.display_name})\n"
             else:
                 txt += f"• <@{uid}>\n"
         return txt
 
     async def entrar_fila(self, interaction: discord.Interaction, modo, nome_modo):
-        await interaction.response.defer(ephemeral=True) # evita "não respondeu a tempo"
+        await interaction.response.defer(ephemeral=True)
         user = interaction.user
         key = self.get_key(modo)
 
-        # remove de outras filas
         for k in list(filas.keys()):
             if user.id in filas[k]:
                 filas[k].remove(user.id)
@@ -106,25 +104,21 @@ class ApView(discord.ui.View):
         filas[key].append(user.id)
         salvar_filas()
 
-        # SE AINDA FALTA GENTE, SÓ MOSTRA NA FILA
         if len(filas[key]) < 2:
             try:
                 emb = interaction.message.embeds[0]
-                emb.description = f"**Jogadores na fila ({len(filas[key])}/2) - {nome_modo}:**\n" + self.get_lista_nomes(interaction.guild, key) + f"\nAguardando adversário..."
+                emb.description = f"**Jogadores na fila ({len(filas[key])}/2) - {nome_modo}:**\n" + self.get_lista_nomes(interaction.guild, key)
                 emb.color = 0xF1C40F
                 await interaction.message.edit(embed=emb)
-            except Exception as e:
-                print(f"Erro edit: {e}")
-            return await interaction.followup.send(f"Você entrou na fila {self.formato} R$ {self.valor} - {nome_modo} (1/2). Seu nome ficou travado ali!", ephemeral=True)
-
-        # SE FECHOU 2 PESSOAS, CRIA CANAL
+            except: pass
+            return await interaction.followup.send(f"Entrou na fila {self.formato} R$ {self.valor} ({nome_modo}) - 1/2", ephemeral=True)
         else:
             guild = interaction.guild
             u1 = guild.get_member(filas[key][0])
             u2 = guild.get_member(filas[key][1])
             if not u1 or not u2:
                 filas[key] = []
-                return await interaction.followup.send("Um dos jogadores saiu do servidor, fila resetada.", ephemeral=True)
+                return await interaction.followup.send("Um saiu do servidor, fila resetada.", ephemeral=True)
 
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -132,7 +126,6 @@ class ApView(discord.ui.View):
                 u2: discord.PermissionOverwrite(view_channel=True, send_messages=True),
                 guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
             }
-            # ADM vê também
             for role in guild.roles:
                 if role.permissions.administrator:
                     overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
@@ -141,13 +134,12 @@ class ApView(discord.ui.View):
             if not cat:
                 cat = await guild.create_category("APS ROLANDO")
 
-            nome_canal = f"ap-{self.formato}-{self.valor}-{u1.display_name}".lower().replace(" ","-").replace(",","").replace(".","")[:90]
+            nome_canal = f"ap-{self.formato}-{self.valor}-{u1.display_name}".lower().replace(" ","-")[:90]
             canal = await guild.create_text_channel(name=nome_canal, overwrites=overwrites, category=cat)
 
-            emb_canal = discord.Embed(title=f"AP {self.formato} R$ {self.valor} - {nome_modo}", description=f"{u1.mention} VS {u2.mention}\nChamem o time!", color=0x2ECC71)
+            emb_canal = discord.Embed(title=f"AP {self.formato} R$ {self.valor} - {nome_modo}", description=f"{u1.mention} VS {u2.mention}\nTragam o time! ADM encerra.", color=0x2ECC71)
             await canal.send(f"{u1.mention} {u2.mention}", embed=emb_canal, view=EncerrarApView(u1, u2, self.valor, self.formato))
 
-            # limpa a fila desse modo
             try:
                 emb = interaction.message.embeds[0]
                 emb.description = "**Jogadores na fila:**\nNenhum jogador na fila."
@@ -157,7 +149,7 @@ class ApView(discord.ui.View):
 
             filas[key] = []
             salvar_filas()
-            return await interaction.followup.send(f"AP FECHOU! Vai pro {canal.mention}", ephemeral=True)
+            return await interaction.followup.send(f"AP FECHOU! {canal.mention}", ephemeral=True)
 
     @discord.ui.button(label="Full ump e xm8", style=discord.ButtonStyle.secondary, custom_id="full")
     async def full(self, interaction, button):
@@ -177,55 +169,58 @@ class ApView(discord.ui.View):
                 removed = True
                 try:
                     emb = interaction.message.embeds[0]
-                    # tenta atualizar lista
-                    from discord import Embed
-                    # pega guild da interaction
-                    emb.description = f"**Jogadores na fila:**\n" + self.get_lista_nomes(interaction.guild, k) if filas[k] else "**Jogadores na fila:**\nNenhum jogador na fila."
+                    emb.description = f"**Jogadores na fila:**\n" + (self.get_lista_nomes(interaction.guild, k) if filas[k] else "Nenhum jogador na fila.")
                     await interaction.message.edit(embed=emb)
                 except: pass
         salvar_filas()
         if removed:
-            await interaction.followup.send("Você saiu da fila!", ephemeral=True)
+            await interaction.followup.send("Saiu da fila!", ephemeral=True)
         else:
-            await interaction.followup.send("Você não estava em nenhuma fila.", ephemeral=True)
+            await interaction.followup.send("Você não estava na fila.", ephemeral=True)
 
 @bot.hybrid_command(name="painel_ap", description="Painel 1v1")
 async def painel_ap(ctx):
-    if not ctx.author.guild_permissions.administrator: return await ctx.send("Só ADM!", ephemeral=True)
+    if not ctx.author.guild_permissions.administrator: return
+    await ctx.defer()
     valores = ["10,00", "5,00", "3,00", "2,00", "1,00", "0,60", "0,40", "0,20"]
     for v in valores:
         emb = discord.Embed(title=f"1v1 Mobile • R$ {v}", description="**Jogadores na fila:**\nNenhum jogador na fila.", color=0x2B2D31)
         await ctx.send(embed=emb, view=ApView(v, "1v1"))
+    await ctx.send("✅ Painel 1v1 criado!", ephemeral=True)
 
 @bot.hybrid_command(name="painel_2v2", description="Painel 2v2")
 async def painel_2v2(ctx):
     if not ctx.author.guild_permissions.administrator: return
+    await ctx.defer()
     valores = ["10,00", "5,00", "3,00", "2,00", "1,00", "0,60", "0,40", "0,20"]
     for v in valores:
         emb = discord.Embed(title=f"2v2 Mobile • R$ {v}", description="**Jogadores na fila:**\nNenhum jogador na fila.", color=0x3498DB)
         await ctx.send(embed=emb, view=ApView(v, "2v2"))
+    await ctx.send("✅ Painel 2v2 criado!", ephemeral=True)
 
 @bot.hybrid_command(name="painel_3v3", description="Painel 3v3")
 async def painel_3v3(ctx):
     if not ctx.author.guild_permissions.administrator: return
+    await ctx.defer()
     valores = ["10,00", "5,00", "3,00", "2,00", "1,00", "0,60", "0,40", "0,20"]
     for v in valores:
         emb = discord.Embed(title=f"3v3 Mobile • R$ {v}", description="**Jogadores na fila:**\nNenhum jogador na fila.", color=0x9B59B6)
         await ctx.send(embed=emb, view=ApView(v, "3v3"))
+    await ctx.send("✅ Painel 3v3 criado!", ephemeral=True)
 
 @bot.hybrid_command(name="painel_4v4", description="Painel 4v4")
 async def painel_4v4(ctx):
     if not ctx.author.guild_permissions.administrator: return
+    await ctx.defer()
     valores = ["10,00", "5,00", "3,00", "2,00", "1,00", "0,60", "0,40", "0,20"]
     for v in valores:
         emb = discord.Embed(title=f"4v4 Mobile • R$ {v}", description="**Jogadores na fila:**\nNenhum jogador na fila.", color=0xE74C3C)
         await ctx.send(embed=emb, view=ApView(v, "4v4"))
+    await ctx.send("✅ Painel 4v4 criado!", ephemeral=True)
 
 @bot.event
 async def on_ready():
     print(f"Bot {bot.user} online!")
-    # registra os botoes como permanentes
-    bot.add_view(ApView("0,00","1v1"))
     await bot.tree.sync()
 
 keep_alive()
