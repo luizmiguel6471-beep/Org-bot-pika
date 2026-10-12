@@ -225,3 +225,95 @@ async def on_ready():
 
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
+class ApView(discord.ui.View):
+    def __init__(self, valor, formato):
+        super().__init__(timeout=None)
+        self.valor, self.formato = valor, formato
+
+    def key(self, modo): return f"{self.valor}_{self.formato}_{modo}"
+
+    def lista(self, guild, key):
+        if key not in filas or not filas[key]: return "Nenhum jogador na fila."
+        t=""
+        for uid in filas[key]:
+            m=guild.get_member(int(uid))
+            t+=f"• {m.mention if m else f'<@{uid}>'} - ({m.display_name if m else 'saiu'})\n"
+        return t
+
+    async def entrar(self, interaction: discord.Interaction, modo, nome_modo):
+        try:
+            await interaction.response.defer(ephemeral=True) # ESSA LINHA TIRA O VERMELHO
+        except: pass
+
+        uid = interaction.user.id
+        k = self.key(modo)
+
+        # tira de outras filas
+        for x in list(filas.keys()):
+            filas[x] = [int(i) for i in filas.get(x,[])]
+            if uid in filas[x]:
+                filas[x].remove(uid)
+
+        if k not in filas: filas[k]=[]
+        if uid not in filas[k]:
+            filas[k].append(uid)
+            salvar()
+
+        # atualiza embed
+        try:
+            emb = interaction.message.embeds[0]
+            emb.description = f"**Jogadores na fila ({len(filas[k])}/2) - {nome_modo}:**\n" + self.lista(interaction.guild, k)
+            emb.color = 0xF1C40F
+            await interaction.message.edit(embed=emb)
+        except Exception as e:
+            print(f"Erro edit: {e}")
+
+        if len(filas[k]) < 2:
+            return await interaction.followup.send(f"Você entrou na fila {nome_modo}! Fica ali em cima travado até achar oponente.", ephemeral=True)
+        else:
+            # cria canal
+            g = interaction.guild
+            u1 = g.get_member(filas[k][0]); u2 = g.get_member(filas[k][1])
+            if not u1 or not u2:
+                filas[k]=[]; return await interaction.followup.send("Um saiu, fila resetada", ephemeral=True)
+
+            overw = {g.default_role:discord.PermissionOverwrite(view_channel=False), u1:discord.PermissionOverwrite(view_channel=True,send_messages=True), u2:discord.PermissionOverwrite(view_channel=True,send_messages=True), g.me:discord.PermissionOverwrite(view_channel=True,send_messages=True)}
+            for r in g.roles:
+                if r.permissions.administrator: overw[r]=discord.PermissionOverwrite(view_channel=True,send_messages=True)
+
+            cat = discord.utils.get(g.categories, name="APS ROLANDO")
+            if not cat: cat = await g.create_category("APS ROLANDO")
+
+            canal = await g.create_text_channel(name=f"ap-{self.formato}-{self.valor}-{u1.display_name}"[:90].lower().replace(" ","-"), overwrites=overw, category=cat)
+            await canal.send(f"{u1.mention} {u2.mention}", embed=discord.Embed(title=f"AP {self.formato} R$ {self.valor} - {nome_modo}", description=f"{u1.mention} VS {u2.mention}", color=0x2ECC71), view=EncerrarApView(u1,u2,self.valor,self.formato))
+
+            try:
+                emb = interaction.message.embeds[0]
+                emb.description="**Jogadores na fila:**\nNenhum jogador na fila."
+                emb.color=0x2B2D31
+                await interaction.message.edit(embed=emb)
+            except: pass
+
+            filas[k]=[]; salvar()
+            return await interaction.followup.send(f"Fechou! {canal.mention}", ephemeral=True)
+
+    @discord.ui.button(label="Full ump e xm8", style=discord.ButtonStyle.secondary, custom_id="full_btn")
+    async def full(self,i,b): await self.entrar(i,"full","Full ump e xm8")
+
+    @discord.ui.button(label="Normal", style=discord.ButtonStyle.secondary, custom_id="normal_btn")
+    async def normal(self,i,b): await self.entrar(i,"normal","Normal")
+
+    @discord.ui.button(label="Sair", style=discord.ButtonStyle.danger, custom_id="sair_btn")
+    async def sair(self,i,b):
+        try: await i.response.defer(ephemeral=True)
+        except: pass
+        for k in list(filas.keys()):
+            if i.user.id in [int(x) for x in filas.get(k,[])]:
+                filas[k]=[x for x in filas[k] if int(x)!=i.user.id]
+                try:
+                    emb=i.message.embeds[0]
+                    emb.description="**Jogadores na fila:**\n"+(self.lista(i.guild,k) if filas[k] else "Nenhum jogador na fila.")
+                    await i.message.edit(embed=emb)
+                except: pass
+        salvar()
+        await i.followup.send("Saiu da fila!", ephemeral=True)
