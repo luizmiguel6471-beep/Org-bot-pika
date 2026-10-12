@@ -28,22 +28,21 @@ class EncerrarApView(discord.ui.View):
     async def finalizar(self, interaction, vencedor):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("So ADM pode encerrar!", ephemeral=True)
-        perdedor = self.u2 if vencedor.id == self.u1.id else self.u1
-        embed = discord.Embed(title="AP FINALIZADO", description=f"Vencedor: {vencedor.mention}\nValor: R$ {self.valor}\nApagando em 10s!", color=0xFFD700)
+        embed = discord.Embed(title="AP FINALIZADO", description=f"Vencedor: {vencedor.mention} - R$ {self.valor} Apagando em 10s!", color=0xFFD700)
         await interaction.response.send_message(embed=embed)
         await asyncio.sleep(10)
         try: await interaction.channel.delete()
         except: pass
 
-    @discord.ui.button(label="Vitoria P1", style=discord.ButtonStyle.success, emoji="👑")
+    @discord.ui.button(label="Vitoria P1", style=discord.ButtonStyle.success)
     async def v1(self, interaction, button):
         await self.finalizar(interaction, self.u1)
 
-    @discord.ui.button(label="Vitoria P2", style=discord.ButtonStyle.success, emoji="👑")
+    @discord.ui.button(label="Vitoria P2", style=discord.ButtonStyle.success)
     async def v2(self, interaction, button):
         await self.finalizar(interaction, self.u2)
 
-    @discord.ui.button(label="Cancelar AP", style=discord.ButtonStyle.danger, emoji="🗑️")
+    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.danger)
     async def cancelar(self, interaction, button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("So ADM!", ephemeral=True)
@@ -55,8 +54,9 @@ class ApView(discord.ui.View):
     def __init__(self, valor):
         super().__init__(timeout=None)
         self.valor = valor
+
     def get_key(self, modo):
-        return f"{self.valor}_{modo}"
+        return self.valor + "_" + modo
 
     async def entrar_fila(self, interaction, modo, nome_modo):
         user = interaction.user
@@ -74,21 +74,68 @@ class ApView(discord.ui.View):
             await interaction.response.send_message(f"Entrou na fila {nome_modo} R$ {self.valor} (1/2)", ephemeral=True)
             try:
                 e = interaction.message.embeds[0]
-                e.description = f"**Jogadores**\n{user.mention} - {nome_modo}"
+                e.description = "**Jogadores**\n" + user.mention + " - " + nome_modo
                 await interaction.message.edit(embed=e)
             except: pass
         else:
-            id1, id2 = filas[key]
+            id1 = filas[key][0]
+            id2 = filas[key][1]
             guild = interaction.guild
             u1 = guild.get_member(id1)
             u2 = guild.get_member(id2)
             overw = {
                 guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                u1: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
-                u2: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
+                u1: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+                u2: discord.PermissionOverwrite(view_channel=True, send_messages=True),
                 guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
             }
             cat = discord.utils.get(guild.categories, name="APS ROLANDO")
             if not cat:
                 cat = await guild.create_category("APS ROLANDO")
-            canal = await guild.create_text_channel(name=f"ap
+
+            nome_canal = "ap-" + self.valor + "-" + u1.display_name
+            nome_canal = nome_canal.replace(",", "").replace(".", "").replace(" ", "-")
+
+            canal = await guild.create_text_channel(name=nome_canal, overwrites=overw, category=cat)
+            emb = discord.Embed(title="AP R$ " + self.valor + " - " + nome_modo, description=f"{u1.mention} vs {u2.mention}\nADM clique no vencedor", color=0x00FF00)
+            vf = EncerrarApView(u1, u2, self.valor)
+            await canal.send(f"{u1.mention} {u2.mention}", embed=emb, view=vf)
+            await interaction.response.send_message(f"AP fechado! {canal.mention}", ephemeral=True)
+            filas[key] = []
+            try:
+                e = interaction.message.embeds[0]
+                e.description = "**Jogadores**\nNenhum jogador na fila."
+                await interaction.message.edit(embed=e)
+            except: pass
+
+    @discord.ui.button(label="Gelo Infinito", style=discord.ButtonStyle.secondary)
+    async def gelo_inf(self, interaction, button):
+        await self.entrar_fila(interaction, "gelo_inf", "Gelo Infinito")
+
+    @discord.ui.button(label="Gelo Normal", style=discord.ButtonStyle.secondary)
+    async def gelo_normal(self, interaction, button):
+        await self.entrar_fila(interaction, "gelo_normal", "Gelo Normal")
+
+    @discord.ui.button(label="Sair", style=discord.ButtonStyle.danger)
+    async def sair(self, interaction, button):
+        for k in list(filas.keys()):
+            if interaction.user.id in filas[k]:
+                filas[k].remove(interaction.user.id)
+        await interaction.response.send_message("Saiu da fila!", ephemeral=True)
+
+@bot.hybrid_command(name="painel_ap", description="Cria paineis")
+async def painel_ap(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.send("So ADM!", ephemeral=True)
+    valores = ["10,00", "5,00", "3,00", "2,00", "1,00", "0,60", "0,40", "0,20"]
+    for valor in valores:
+        emb = discord.Embed(title="1v1 Mobile - R$ " + valor, description="**Jogadores**\nNenhum jogador na fila.", color=0x2B2D31)
+        await ctx.send(embed=emb, view=ApView(valor))
+
+@bot.event
+async def on_ready():
+    print(f"Bot {bot.user} online!")
+    await bot.tree.sync()
+
+keep_alive()
+bot.run(os.getenv("DISCORD_TOKEN"))
